@@ -1,8 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
-import { fetchAllDolJobs } from "./dol.server";
+import { z } from "zod";
+import { fetchDolJobs } from "./dol.server";
 
 export const getDolJobs = createServerFn({ method: "GET" })
-  .handler(async () => {
-    const jobs = await fetchAllDolJobs();
-    return jobs;
+  .inputValidator((data: unknown) =>
+    z.object({
+      top: z.number().optional(),
+      skip: z.number().optional(),
+      search: z.string().optional(),
+      filter: z.string().optional(),
+    }).parse(data)
+  )
+  .handler(async ({ data }) => {
+    return fetchDolJobs(data);
   });
