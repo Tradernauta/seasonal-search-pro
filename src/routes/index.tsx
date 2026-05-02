@@ -49,35 +49,38 @@ function Dashboard() {
     return parts.length ? parts.join(" and ") : undefined;
   }, [filterVisa, filterActive, filterStatus]);
 
-  const fetchPage = useCallback(async (page: number) => {
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchDebounced, filterVisa, filterStatus, filterActive]);
+
+  // Fetch data when page or filters change
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    try {
-      const result = await getDolJobs({
-        data: {
-          top: PER_PAGE,
-          skip: (page - 1) * PER_PAGE,
-          search: searchDebounced || undefined,
-          filter: buildFilter(),
-        },
-      });
+
+    const filter = buildFilter();
+
+    getDolJobs({
+      data: {
+        top: PER_PAGE,
+        skip: (currentPage - 1) * PER_PAGE,
+        search: searchDebounced || undefined,
+        filter,
+      },
+    }).then((result) => {
+      if (cancelled) return;
       setJobs(result.jobs);
       setTotalCount(result.totalCount);
       setLastUpdated(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [searchDebounced, buildFilter]);
+    }).catch((e) => {
+      if (!cancelled) console.error(e);
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
 
-  useEffect(() => {
-    setCurrentPage(1);
-    fetchPage(1);
-  }, [fetchPage]);
-
-  useEffect(() => {
-    fetchPage(currentPage);
-  }, [currentPage]);
+    return () => { cancelled = true; };
+  }, [currentPage, searchDebounced, buildFilter]);
 
   const totalPages = Math.ceil(totalCount / PER_PAGE);
 
