@@ -37,7 +37,7 @@ export async function fetchAllDolJobs(): Promise<DolJob[]> {
   while (url && attempts < 20) {
     attempts++;
     try {
-      const res = await fetch(url, {
+      const res: Response = await fetch(url as string, {
         headers: {
           "Accept": "application/json",
           "User-Agent": "SeasonalJobsDashboard/1.0",
@@ -49,7 +49,7 @@ export async function fetchAllDolJobs(): Promise<DolJob[]> {
         break;
       }
 
-      const data = await res.json();
+      const data: any = await res.json();
       const items = data.data || data.value || data;
 
       if (Array.isArray(items)) {
