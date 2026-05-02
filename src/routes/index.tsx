@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { getDolJobs } from "@/server/dol.functions";
+import { getDolJobs } from "@/dol.functions";
 import type { DolJob } from "@/server/dol.server";
 import { formatWage, formatDate, getStatusClass, getStatusLabel } from "@/lib/dol-utils";
 import { JobModal } from "@/components/JobModal";
