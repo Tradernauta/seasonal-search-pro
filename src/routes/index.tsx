@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { getDolJobs } from "@/server/dol.functions";
 import type { DolJob } from "@/server/dol.server";
 import { formatWage, formatDate, getStatusClass, getStatusLabel } from "@/lib/dol-utils";
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Seasonal Jobs — DOL Dashboard" },
-      { name: "description", content: "Painel de vagas sazonais do Departamento de Trabalho dos EUA" },
+      { name: "description", content: "Painel de vagas sazonais H-2A e H-2B do DOL" },
     ],
   }),
 });
@@ -18,59 +18,68 @@ export const Route = createFileRoute("/")({
 const PER_PAGE = 24;
 
 function Dashboard() {
-  const [allJobs, setAllJobs] = useState<DolJob[]>([]);
+  const [jobs, setJobs] = useState<DolJob[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [filterVisa, setFilterVisa] = useState("");
-  const [filterState, setFilterState] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterActive, setFilterActive] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedJob, setSelectedJob] = useState<DolJob | null>(null);
   const [lastUpdated, setLastUpdated] = useState("");
 
+  // Debounce search
   useEffect(() => {
-    getDolJobs().then((jobs) => {
-      setAllJobs(jobs);
-      setLoading(false);
+    const t = setTimeout(() => setSearchDebounced(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Build OData filter
+  const buildFilter = useCallback(() => {
+    const parts: string[] = [];
+    if (filterVisa) parts.push(`visa_class eq '${filterVisa}'`);
+    if (filterActive === "true") parts.push("active eq true");
+    if (filterActive === "false") parts.push("active eq false");
+    if (filterStatus === "Certification") parts.push("search.ismatch('Certification', 'case_status')");
+    if (filterStatus === "Pending") parts.push("search.ismatch('Pending', 'case_status')");
+    if (filterStatus === "Acceptance") parts.push("search.ismatch('Acceptance', 'case_status')");
+    if (filterStatus === "Withdrawn") parts.push("search.ismatch('Withdrawn', 'case_status')");
+    return parts.length ? parts.join(" and ") : undefined;
+  }, [filterVisa, filterActive, filterStatus]);
+
+  const fetchPage = useCallback(async (page: number) => {
+    setLoading(true);
+    try {
+      const result = await getDolJobs({
+        data: {
+          top: PER_PAGE,
+          skip: (page - 1) * PER_PAGE,
+          search: searchDebounced || undefined,
+          filter: buildFilter(),
+        },
+      });
+      setJobs(result.jobs);
+      setTotalCount(result.totalCount);
       setLastUpdated(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
-    }).catch(() => setLoading(false));
-  }, []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchDebounced, buildFilter]);
 
-  const states = useMemo(() => {
-    return [...new Set(allJobs.map((j) => j.employer_state).filter(Boolean))].sort();
-  }, [allJobs]);
+  useEffect(() => {
+    setCurrentPage(1);
+    fetchPage(1);
+  }, [fetchPage]);
 
-  const filtered = useMemo(() => {
-    return allJobs.filter((j) => {
-      if (filterVisa && j.visa_class !== filterVisa) return false;
-      if (filterState && j.employer_state !== filterState) return false;
-      if (filterStatus && j.case_status !== filterStatus) return false;
-      if (filterActive === "true" && !j.active) return false;
-      if (filterActive === "false" && j.active) return false;
-      if (search) {
-        const hay = [j.job_title, j.employer_business_name, j.employer_city, j.employer_state, j.soc_title]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(search.toLowerCase())) return false;
-      }
-      return true;
-    });
-  }, [allJobs, search, filterVisa, filterState, filterStatus, filterActive]);
+  useEffect(() => {
+    fetchPage(currentPage);
+  }, [currentPage]);
 
-  useEffect(() => { setCurrentPage(1); }, [filtered]);
-
-  const stats = useMemo(() => {
-    const active = allJobs.filter((j) => j.active).length;
-    const totalPos = allJobs.reduce((s, j) => s + (j.total_positions || 0), 0);
-    const wages = allJobs.filter((j) => j.basic_rate_from > 0 && j.pay_range_desc !== "Month").map((j) => j.basic_rate_from);
-    const avgWage = wages.length ? wages.reduce((a, b) => a + b, 0) / wages.length : 0;
-    return { total: allJobs.length, active, totalPos, avgWage, stateCount: states.length };
-  }, [allJobs, states]);
-
-  const totalPages = Math.ceil(filtered.length / PER_PAGE);
-  const pageJobs = filtered.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE);
+  const totalPages = Math.ceil(totalCount / PER_PAGE);
 
   const paginationRange = useMemo(() => {
     const range: (number | string)[] = [];
@@ -89,6 +98,12 @@ function Dashboard() {
     setCurrentPage(p);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // Stats from current total (approximate)
+  const activeCount = jobs.filter((j) => j.active).length;
+  const totalPos = jobs.reduce((s, j) => s + (j.total_positions || 0), 0);
+  const wages = jobs.filter((j) => j.basic_rate_from > 0 && j.pay_range_desc !== "Month").map((j) => j.basic_rate_from);
+  const avgWage = wages.length ? wages.reduce((a, b) => a + b, 0) / wages.length : 0;
 
   return (
     <div className="min-h-screen">
@@ -111,11 +126,11 @@ function Dashboard() {
       <main className="max-w-[1400px] mx-auto p-8">
         {/* Stats */}
         <div className="grid grid-cols-5 gap-px bg-border border border-border mb-8 animate-fade-up">
-          <StatCard label="Total de Vagas" value={loading ? "—" : stats.total.toLocaleString("pt-BR")} sub="carregadas da API" />
-          <StatCard label="Vagas Ativas" value={loading ? "—" : stats.active.toLocaleString("pt-BR")} sub="status: active" accent />
-          <StatCard label="Total de Posições" value={loading ? "—" : stats.totalPos.toLocaleString("pt-BR")} sub="vagas abertas" />
-          <StatCard label="Salário Médio" value={loading ? "—" : stats.avgWage ? `$${stats.avgWage.toFixed(2)}` : "—"} sub="USD / hora" green />
-          <StatCard label="Estados" value={loading ? "—" : String(stats.stateCount)} sub="cobertos" />
+          <StatCard label="Total de Vagas" value={totalCount.toLocaleString("pt-BR")} sub="na API DOL" />
+          <StatCard label="Nesta Página" value={String(jobs.length)} sub={`de ${PER_PAGE}`} accent />
+          <StatCard label="Total de Posições" value={totalPos.toLocaleString("pt-BR")} sub="nesta página" />
+          <StatCard label="Salário Médio" value={avgWage ? `$${avgWage.toFixed(2)}` : "—"} sub="USD / hora" green />
+          <StatCard label="Páginas" value={String(totalPages)} sub="disponíveis" />
         </div>
 
         {/* Filters */}
@@ -132,11 +147,6 @@ function Dashboard() {
           </div>
 
           <Select value={filterVisa} onChange={setFilterVisa} options={[["", "VISTO: TODOS"], ["H-2A", "H-2A"], ["H-2B", "H-2B"]]} />
-          <Select
-            value={filterState}
-            onChange={setFilterState}
-            options={[["", "ESTADO: TODOS"], ...states.map((s) => [s, s] as [string, string])]}
-          />
           <Select
             value={filterStatus}
             onChange={setFilterStatus}
@@ -155,7 +165,7 @@ function Dashboard() {
           />
 
           <span className="font-mono text-[10px] text-text3 ml-auto whitespace-nowrap">
-            Exibindo <span className="text-primary">{filtered.length.toLocaleString("pt-BR")}</span> vagas
+            Total: <span className="text-primary">{totalCount.toLocaleString("pt-BR")}</span> vagas
           </span>
         </div>
 
@@ -166,19 +176,19 @@ function Dashboard() {
               <div className="w-9 h-9 border-2 border-border2 border-t-primary rounded-full animate-spin-loader" />
               <span className="font-mono text-[11px] text-text3 tracking-widest">CONECTANDO À API DOL...</span>
             </div>
-          ) : pageJobs.length === 0 ? (
+          ) : jobs.length === 0 ? (
             <div className="col-span-full bg-card p-16 text-center font-mono text-xs text-text3 tracking-wider">
               NENHUMA VAGA ENCONTRADA COM OS FILTROS APLICADOS
             </div>
           ) : (
-            pageJobs.map((job, i) => (
+            jobs.map((job, i) => (
               <JobCard key={job.case_number || i} job={job} onClick={() => setSelectedJob(job)} />
             ))
           )}
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {totalPages > 1 && !loading && (
           <div className="flex items-center justify-center gap-2 mt-6 animate-fade-up-delay2">
             <PageBtn onClick={() => goPage(currentPage - 1)} disabled={currentPage === 1}>← ANTERIOR</PageBtn>
             {paginationRange.map((p, i) =>
@@ -241,7 +251,7 @@ function JobCard({ job, onClick }: { job: DolJob; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
-      className={`bg-card px-5 py-4 flex flex-col gap-2.5 cursor-pointer transition-colors hover:bg-surface2 relative overflow-hidden group`}
+      className="bg-card px-5 py-4 flex flex-col gap-2.5 cursor-pointer transition-colors hover:bg-surface2 relative overflow-hidden group"
     >
       <div className={`absolute left-0 top-0 bottom-0 w-[3px] transition-colors ${job.active ? "bg-dol-green" : "bg-border2"} group-hover:bg-primary`} />
 
