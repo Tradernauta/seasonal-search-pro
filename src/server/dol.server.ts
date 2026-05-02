@@ -27,21 +27,27 @@ export interface DolJob {
   active: boolean;
 }
 
-const API_BASE = "https://seasonaljobs.dol.gov/api/search";
+const API_URL = "https://api.seasonaljobs.dol.gov/datahub/search?api-version=2023-11-01";
 
 export async function fetchAllDolJobs(): Promise<DolJob[]> {
   const all: DolJob[] = [];
-  let url: string | null = `${API_BASE}?_limit=1000`;
+  let skip = 0;
+  const top = 1000;
   let attempts = 0;
 
-  while (url && attempts < 20) {
+  while (attempts < 20) {
     attempts++;
     try {
-      const res: Response = await fetch(url as string, {
+      const res: Response = await fetch(API_URL, {
+        method: "POST",
         headers: {
-          "Accept": "application/json",
-          "User-Agent": "SeasonalJobsDashboard/1.0",
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          top,
+          skip,
+          orderby: "begin_date desc",
+        }),
       });
 
       if (!res.ok) {
@@ -50,13 +56,15 @@ export async function fetchAllDolJobs(): Promise<DolJob[]> {
       }
 
       const data: any = await res.json();
-      const items = data.data || data.value || data;
+      const items = data.value;
 
-      if (Array.isArray(items)) {
-        all.push(...items);
-      }
+      if (!Array.isArray(items) || items.length === 0) break;
 
-      url = data["@odata.nextLink"] || data.links?.next || null;
+      all.push(...items);
+      skip += items.length;
+
+      // If we got fewer than requested, we're done
+      if (items.length < top) break;
     } catch (e) {
       console.error("Fetch error:", e);
       break;
