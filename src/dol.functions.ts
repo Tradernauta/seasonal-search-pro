@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { fetchDolJobs } from "./dol.server";
+import { fetchDolJobs } from "./server/dol.server";
 
 export const getDolJobs = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
