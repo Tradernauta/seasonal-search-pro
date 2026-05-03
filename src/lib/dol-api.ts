@@ -1,4 +1,5 @@
-const API_URL = "https://api.seasonaljobs.dol.gov/datahub/search?api-version=2023-11-01";
+// Uses /api/dol proxy to avoid CORS/allowlist issues
+const API_URL = "/api/dol";
 
 export interface DolJob {
   case_number: string;
@@ -61,7 +62,7 @@ export async function fetchDolJobsClient(options?: {
     });
 
     if (!res.ok) {
-      console.error(`DOL API error: ${res.status}`);
+      console.error(`DOL API error: ${res.status}`, await res.text());
       return { jobs: [], totalCount: 0 };
     }
 
