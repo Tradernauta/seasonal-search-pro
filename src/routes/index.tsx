@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { getDolJobs } from "@/dol.functions";
-import type { DolJob } from "@/server/dol.server";
+import { fetchDolJobsClient } from "@/lib/dol-api";
+import type { DolJob } from "@/lib/dol-api";
 import { formatWage, formatDate, getStatusClass, getStatusLabel } from "@/lib/dol-utils";
 import { JobModal } from "@/components/JobModal";
 
@@ -61,13 +61,11 @@ function Dashboard() {
 
     const filter = buildFilter();
 
-    getDolJobs({
-      data: {
-        top: PER_PAGE,
-        skip: (currentPage - 1) * PER_PAGE,
-        search: searchDebounced || undefined,
-        filter,
-      },
+    fetchDolJobsClient({
+      top: PER_PAGE,
+      skip: (currentPage - 1) * PER_PAGE,
+      search: searchDebounced || undefined,
+      filter,
     }).then((result) => {
       if (cancelled) return;
       setJobs(result.jobs);
