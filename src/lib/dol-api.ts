@@ -1,5 +1,6 @@
-// Uses /api/dol proxy to avoid CORS/allowlist issues
-const API_URL = "/api/dol";
+// Tries direct API first, falls back to corsproxy if blocked
+const DOL_API = "https://api.seasonaljobs.dol.gov/datahub/search?api-version=2023-11-01";
+const PROXY_URL = "https://corsproxy.io/?" + encodeURIComponent(DOL_API);
 
 export interface DolJob {
   case_number: string;
@@ -35,18 +36,25 @@ export interface DolSearchResult {
   totalCount: number;
 }
 
+async function doFetch(url: string, body: object): Promise<any> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
 export async function fetchDolJobsClient(options?: {
   top?: number;
   skip?: number;
   search?: string;
   filter?: string;
 }): Promise<DolSearchResult> {
-  const top = options?.top ?? 24;
-  const skip = options?.skip ?? 0;
-
   const body: Record<string, any> = {
-    top,
-    skip,
+    top: options?.top ?? 24,
+    skip: options?.skip ?? 0,
     count: true,
     orderby: "begin_date desc",
   };
@@ -54,24 +62,22 @@ export async function fetchDolJobsClient(options?: {
   if (options?.search) body.search = options.search;
   if (options?.filter) body.filter = options.filter;
 
-  try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  let data: any;
 
-    if (!res.ok) {
-      console.error(`DOL API error: ${res.status}`, await res.text());
+  try {
+    // Try direct first
+    data = await doFetch(DOL_API, body);
+  } catch (e) {
+    console.warn("Direct API failed, trying proxy...", e);
+    try {
+      data = await doFetch(PROXY_URL, body);
+    } catch (e2) {
+      console.error("Proxy also failed:", e2);
       return { jobs: [], totalCount: 0 };
     }
-
-    const data: any = await res.json();
-    const jobs = (data.value || []) as DolJob[];
-    const totalCount = data["@odata.count"] ?? jobs.length;
-    return { jobs, totalCount };
-  } catch (e) {
-    console.error("DOL fetch error:", e);
-    return { jobs: [], totalCount: 0 };
   }
+
+  const jobs = (data.value || []) as DolJob[];
+  const totalCount = data["@odata.count"] ?? jobs.length;
+  return { jobs, totalCount };
 }
