@@ -1,4 +1,4 @@
-import { getDolJobs } from "@/server/dol.functions";
+import { getDolJobs } from "@/dol.functions";
 
 export interface DolJob {
   case_number: string;
